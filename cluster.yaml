@@ -1,0 +1,25 @@
+cluster:
+  id: cluster_01
+  role: main
+  token: ""
+
+node:
+  id: node_main
+  name: main-node
+  capabilities:
+    - planning
+    - reviewing
+    - scheduling
+
+server:
+  bind: "0.0.0.0"
+  port: 8787
+
+lease:
+  ttl: 60s
+  scan_rate: 10s
+
+watchdog:
+  check_interval: 5s
+  degraded_after: 15s
+  offline_after: 30s
