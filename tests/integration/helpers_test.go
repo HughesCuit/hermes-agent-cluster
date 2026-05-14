@@ -60,6 +60,13 @@ func NewTestCluster(leaseTTL time.Duration) *TestCluster {
 		},
 	)
 
+	// Lease expiry callback: mark node offline before recovery
+	// (mirrors the fix in cmd/cluster/main.go)
+	leaseMgr.SetExpiryCallback(func(taskID, nodeID string) {
+		registry.UpdateStatus(nodeID, cluster.NodeOffline)
+		detector.NotifyOffline(nodeID)
+	})
+
 	return &TestCluster{
 		Registry:    registry,
 		Scheduler:   sched,

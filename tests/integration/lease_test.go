@@ -162,3 +162,116 @@ func TestScenario4c_LeaseRevokeAllForNode(t *testing.T) {
 		t.Error("node_a's lease for task_bulk_002 should be revoked")
 	}
 }
+
+// TestScenario4d_LeaseExpiryNoSameNodeReassign verifies that after lease expiry,
+// the task is NOT rescheduled to the same node when other eligible nodes exist.
+// This is Bug#3: lease过期后NotifyOffline不修改registry状态，scheduler仍选同一节点。
+func TestScenario4d_LeaseExpiryNoSameNodeReassign(t *testing.T) {
+	cluster := NewTestCluster(500 * time.Millisecond)
+	defer cluster.Stop()
+
+	// Register two nodes with same capabilities
+	cluster.RegisterNode("node_a", "Node-A", []string{"coding"})
+	cluster.RegisterNode("node_b", "Node-B", []string{"coding"})
+
+	// Only start the recovery detector, NOT the watchdog.
+	// The watchdog would mark nodes offline during the sleep (no heartbeats),
+	// which would revoke the lease via NotifyOffline before we test expiry.
+	cluster.Recovery.Start()
+	defer cluster.Recovery.Stop()
+
+	// Create a task and assign it directly to node_a (no lease yet)
+	cluster.TaskStore.Create("task_expiry_001", "Lease expiry test task", []string{"coding"})
+	cluster.TaskStore.SetAssigned("task_expiry_001", "node_a")
+
+	// Create a lease with very short TTL for node_a
+	_, err := cluster.LeaseMgr.Create("task_expiry_001", "node_a", 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("failed to create lease: %v", err)
+	}
+	t.Log("Task assigned to node_a with 500ms lease")
+
+	// Wait for lease to expire
+	time.Sleep(600 * time.Millisecond)
+
+	// Manually trigger expiry check (simulates the background scanner)
+	expired := cluster.LeaseMgr.CheckExpiry()
+	if len(expired) == 0 {
+		t.Fatal("expected at least one expired task")
+	}
+
+	// Wait for async callback to execute and recovery to process
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the node was marked offline in the registry
+	nodeStatus, ok := cluster.Registry.Get("node_a")
+	if !ok {
+		t.Fatal("node_a not found in registry")
+	}
+	if nodeStatus.Status != "offline" {
+		t.Errorf("expected node_a to be offline after lease expiry, got %s",
+			nodeStatus.Status)
+	}
+
+	// Now reschedule the task - it should go to node_b (not node_a)
+	cluster.TaskStore.Unassign("task_expiry_001")
+
+	// Schedule pending tasks
+	rescheduled := cluster.Scheduler.SchedulePending()
+
+	// Verify the task was rescheduled to node_b (different from node_a)
+	if len(rescheduled) == 0 {
+		t.Fatal("expected task to be rescheduled to node_b")
+	}
+	for _, pair := range rescheduled {
+		if pair[0] == "task_expiry_001" {
+			if pair[1] == "node_a" {
+				t.Errorf("task was rescheduled to the SAME node node_a after lease expiry! "+
+					"Expected it to go to node_b")
+			} else {
+				t.Logf("Task correctly rescheduled to different node: %s", pair[1])
+			}
+		}
+	}
+}
+
+// TestScenario4e_LeaseExpiryOnlyOfflineHolder verifies that only the expired
+// node is marked offline, not other nodes.
+func TestScenario4e_LeaseExpiryOnlyOfflineHolder(t *testing.T) {
+	cluster := NewTestCluster(500 * time.Millisecond)
+	defer cluster.Stop()
+
+	// Register two nodes
+	cluster.RegisterNode("node_a", "Node-A", []string{"coding"})
+	cluster.RegisterNode("node_b", "Node-B", []string{"coding"})
+
+	// Create a lease only for node_a
+	cluster.LeaseMgr.Create("task_selective_001", "node_a", 500*time.Millisecond)
+	// Create a lease for node_b with longer TTL
+	cluster.LeaseMgr.Create("task_selective_002", "node_b", 10*time.Second)
+
+	// Wait for node_a's lease to expire
+	time.Sleep(600 * time.Millisecond)
+
+	// Trigger expiry check
+	cluster.LeaseMgr.CheckExpiry()
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify node_a is offline
+	nodeA, ok := cluster.Registry.Get("node_a")
+	if !ok {
+		t.Fatal("node_a not found")
+	}
+	if nodeA.Status != "offline" {
+		t.Errorf("node_a should be offline, got %s", nodeA.Status)
+	}
+
+	// Verify node_b is still online
+	nodeB, ok := cluster.Registry.Get("node_b")
+	if !ok {
+		t.Fatal("node_b not found")
+	}
+	if nodeB.Status != "online" {
+		t.Errorf("node_b should still be online, got %s", nodeB.Status)
+	}
+}

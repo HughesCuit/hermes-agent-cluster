@@ -84,6 +84,8 @@ func main() {
 	// --- Lease expiry callback: triggers recovery on lease expiry ---
 	leaseMgr.SetExpiryCallback(func(taskID, nodeID string) {
 		log.Printf("lease expired: task=%s node=%s", taskID, nodeID)
+		// Mark node as offline in registry so scheduler won't pick it again
+		registry.UpdateStatus(nodeID, cluster.NodeOffline)
 		detector.NotifyOffline(nodeID)
 	})
 
