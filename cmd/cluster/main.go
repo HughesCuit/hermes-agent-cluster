@@ -96,6 +96,7 @@ func main() {
 		recLog,
 		stateStore,
 		receiver,
+		leaderSync,
 	)
 
 	// --- Start background services ---

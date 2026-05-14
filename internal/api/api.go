@@ -28,6 +28,7 @@ type Server struct {
 	Log        *recovery.Log
 	StateStore *sync.StateStore
 	Receiver   *sync.FollowerReceiver
+	LeaderSync *sync.LeaderSync
 }
 
 // NewServer creates a new API server.
@@ -39,6 +40,7 @@ func NewServer(
 	recLog *recovery.Log,
 	stateStore *sync.StateStore,
 	receiver *sync.FollowerReceiver,
+	leaderSync *sync.LeaderSync,
 ) *Server {
 	s := &Server{
 		Router:     chi.NewRouter(),
@@ -49,6 +51,7 @@ func NewServer(
 		Log:        recLog,
 		StateStore: stateStore,
 		Receiver:   receiver,
+		LeaderSync: leaderSync,
 	}
 	s.Router.Use(middleware.Logger)
 	s.Router.Use(middleware.Recoverer)
@@ -107,6 +110,7 @@ func writeJSON(w http.ResponseWriter, v interface{}) bool {
 type joinRequest struct {
 	NodeName     string   `json:"node_name"`
 	Capabilities []string `json:"capabilities"`
+	Endpoint     string   `json:"endpoint"`
 }
 
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +127,13 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		Capabilities: req.Capabilities,
 	}
 	s.Registry.Register(node)
+
+	// Register follower URL for state sync
+	if req.Endpoint != "" && s.LeaderSync != nil {
+		s.LeaderSync.AddFollower(req.Endpoint)
+		log.Printf("registered follower: node=%s endpoint=%s", nodeID, req.Endpoint)
+	}
+
 	writeJSON(w, map[string]string{"node_id": nodeID, "status": "registered"})
 }
 
