@@ -60,7 +60,9 @@ func TestScenario4_LeaseExpiration(t *testing.T) {
 	}
 
 	// Step 9: Create the task in the task store and verify rescheduling works
-	cluster.TaskStore.Create("task_lease_001", "Lease test task", []string{"coding"})
+	if _, err := cluster.TaskStore.Create("task_lease_001", "Lease test task", []string{"coding"}); err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
 	cluster.TaskStore.SetAssigned("task_lease_001", "node_a")
 
 	// Create a fresh lease for rescheduling test

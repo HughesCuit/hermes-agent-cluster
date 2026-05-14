@@ -169,8 +169,12 @@ func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
-	taskID := "task_" + time.Now().Format("150405.000")
-	task := s.Scheduler.GetTaskStore().Create(taskID, req.Title, req.Requires)
+	taskID := scheduler.GenerateID()
+	task, err := s.Scheduler.GetTaskStore().Create(taskID, req.Title, req.Requires)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
 	// Try to schedule immediately
 	scheduled := s.Scheduler.SchedulePending()
 	_ = scheduled

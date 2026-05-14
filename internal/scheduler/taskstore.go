@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -41,10 +43,23 @@ func NewTaskStore() *TaskStore {
 	return &TaskStore{tasks: make(map[string]*Task)}
 }
 
-// Create adds a new task.
-func (s *TaskStore) Create(id, title string, requires []string) *Task {
+// GenerateID creates a random task ID using crypto/rand (collision-free).
+func GenerateID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback: should never happen with crypto/rand
+		return fmt.Sprintf("task_%d", time.Now().UnixNano())
+	}
+	return "task_" + hex.EncodeToString(b)
+}
+
+// Create adds a new task. Returns an error if the ID already exists.
+func (s *TaskStore) Create(id, title string, requires []string) (*Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if _, exists := s.tasks[id]; exists {
+		return nil, fmt.Errorf("task %s already exists", id)
+	}
 	now := time.Now()
 	t := &Task{
 		ID:        id,
@@ -56,7 +71,7 @@ func (s *TaskStore) Create(id, title string, requires []string) *Task {
 		Version:   1,
 	}
 	s.tasks[id] = t
-	return t
+	return t, nil
 }
 
 // Get returns a task by ID.

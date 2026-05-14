@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -62,7 +63,9 @@ func (tc *RecoveryTestCluster) RegisterNode(id, name string, caps []string) {
 }
 
 func (tc *RecoveryTestCluster) SubmitTask(id, title string, requires []string) *scheduler.Task {
-	tc.TaskStore.Create(id, title, requires)
+	if _, err := tc.TaskStore.Create(id, title, requires); err != nil {
+		panic(fmt.Sprintf("SubmitTask: %v", err))
+	}
 	tc.Scheduler.SchedulePending()
 	t, _ := tc.TaskStore.Get(id)
 	return t

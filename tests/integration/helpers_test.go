@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/heventure/hermes-kanban-remote/internal/cluster"
@@ -100,7 +101,10 @@ func (tc *TestCluster) RegisterNode(id, name string, capabilities []string) {
 
 // SubmitTask creates a task and attempts to schedule it.
 func (tc *TestCluster) SubmitTask(id, title string, requires []string) *scheduler.Task {
-	task := tc.TaskStore.Create(id, title, requires)
+	task, err := tc.TaskStore.Create(id, title, requires)
+	if err != nil {
+		panic(fmt.Sprintf("SubmitTask: %v", err))
+	}
 	tc.Scheduler.SchedulePending()
 	return task
 }
