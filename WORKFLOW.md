@@ -94,3 +94,20 @@ release ✅
 4. **E2E task** — main 分支上跑完整验证（build + test + 运行时验证）
 5. **Publish task** — 打 tag + GitHub Release + 通知
 6. **Fix 循环** — Review 不通过时创建新 coding task（assignee=原作者），link 到 review task 的 child
+
+## ⚠️ Review-Fix 循环规则（2026-05-14 踩坑）
+
+### 问题
+CTO review 不通过时创建 fix task，如果设为 review task 的 child，
+review 是 blocked 状态 → fix task 永远停在 todo → pipeline 卡死。
+
+### 正确做法
+1. Review 不通过 → review task 状态改为 `blocked`
+2. 创建 fix task，**parent 设为原 coding task**（不是 review task）
+3. Fix task 会自动 promote 到 ready → dispatcher pickup
+4. Fix 完成后 → unblock review task → re-review
+5. Re-review 通过 → review done → 下游任务 promote
+
+### 禁止
+- ❌ fix task 的 parent 设为 review task
+- ❌ 在 blocked 的 review task 上评论期望触发下游
