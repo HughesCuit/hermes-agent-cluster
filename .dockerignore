@@ -1,0 +1,5 @@
+.git
+*.md
+configs/
+test-e2e.sh
+.github/
