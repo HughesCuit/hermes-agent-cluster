@@ -1,0 +1,32 @@
+# Stage 1: Build Go binary
+FROM golang:1.22-alpine AS go-builder
+WORKDIR /app
+COPY hermes-kanban-remote/ .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /hermes-cluster ./cmd/cluster
+
+# Stage 2: Hermes Agent + plugin
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Hermes Agent
+RUN git clone --depth 1 https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent
+WORKDIR /opt/hermes-agent
+RUN pip install --no-cache-dir -e . 2>&1 | tail -3
+
+# Copy Go binary from stage 1
+COPY --from=go-builder /hermes-cluster /usr/local/bin/hermes-cluster
+RUN chmod +x /usr/local/bin/hermes-cluster
+
+# Copy plugin
+COPY plugins/hermes-kanban-remote/ /root/.hermes/plugins/hermes-kanban-remote/
+
+# Copy config
+COPY configs/ /root/.hermes/kanban-remote/
+
+RUN mkdir -p /root/.hermes
+
+WORKDIR /root
+ENTRYPOINT ["hermes"]
