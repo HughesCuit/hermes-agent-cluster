@@ -1,5 +1,7 @@
 package capability
 
+import "strings"
+
 // NodeInfo holds the scoring inputs for a node.
 type NodeInfo struct {
 	ID            string
@@ -22,10 +24,10 @@ func Score(node NodeInfo, requirements []string) float64 {
 		matchCount := 0
 		capSet := make(map[string]bool)
 		for _, c := range node.Capabilities {
-			capSet[c] = true
+			capSet[strings.ToLower(c)] = true
 		}
 		for _, r := range requirements {
-			if capSet[r] {
+			if capSet[strings.ToLower(r)] {
 				matchCount++
 			}
 		}

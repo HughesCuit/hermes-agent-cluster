@@ -77,7 +77,8 @@ func (s *TaskStore) Update(t *Task) {
 	defer s.mu.Unlock()
 	t.UpdatedAt = time.Now()
 	t.Version++
-	s.tasks[t.ID] = t
+	cp := *t
+	s.tasks[t.ID] = &cp
 }
 
 // SetStatus changes a task's status.

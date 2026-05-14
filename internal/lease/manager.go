@@ -2,6 +2,7 @@ package lease
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -133,7 +134,14 @@ func (m *Manager) Revoke(leaseID string) error {
 	}
 	l.Status = LeaseRevoked
 	if m.callback != nil {
-		go m.callback(l.TaskID, l.NodeID)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("lease callback panic: %v", r)
+				}
+			}()
+			m.callback(l.TaskID, l.NodeID)
+		}()
 	}
 	return nil
 }
@@ -148,7 +156,15 @@ func (m *Manager) RevokeAllForNode(nodeID string) []string {
 			l.Status = LeaseRevoked
 			revoked = append(revoked, l.TaskID)
 			if m.callback != nil {
-				go m.callback(l.TaskID, l.NodeID)
+				leaseCopy := *l
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("lease callback panic: %v", r)
+						}
+					}()
+					m.callback(leaseCopy.TaskID, leaseCopy.NodeID)
+				}()
 			}
 		}
 	}
@@ -181,7 +197,15 @@ func (m *Manager) CheckExpiry() []string {
 			l.Status = LeaseExpired
 			expired = append(expired, l.TaskID)
 			if m.callback != nil {
-				go m.callback(l.TaskID, l.NodeID)
+				leaseCopy := *l
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("lease callback panic: %v", r)
+						}
+					}()
+					m.callback(leaseCopy.TaskID, leaseCopy.NodeID)
+				}()
 			}
 		}
 	}

@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/heventure/hermes-kanban-remote/internal/scheduler"
 	"github.com/heventure/hermes-kanban-remote/internal/sync"
 )
+
+const maxBodySize = 1 << 20 // 1MB
 
 // Server holds all dependencies for the API.
 type Server struct {
@@ -81,6 +84,24 @@ func (s *Server) setupRoutes() {
 	})
 }
 
+// --- Helpers ---
+
+// limitBody caps the request body to maxBodySize to prevent abuse.
+func limitBody(w http.ResponseWriter, r *http.Request) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	return true
+}
+
+// writeJSON encodes v as JSON and returns false if encoding fails.
+func writeJSON(w http.ResponseWriter, v interface{}) bool {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("json encode error: %v", err)
+		return false
+	}
+	return true
+}
+
 // --- Node handlers ---
 
 type joinRequest struct {
@@ -89,6 +110,7 @@ type joinRequest struct {
 }
 
 func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var req joinRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -101,11 +123,11 @@ func (s *Server) handleJoin(w http.ResponseWriter, r *http.Request) {
 		Capabilities: req.Capabilities,
 	}
 	s.Registry.Register(node)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"node_id": nodeID, "status": "registered"})
+	writeJSON(w, map[string]string{"node_id": nodeID, "status": "registered"})
 }
 
 func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var req struct {
 		NodeID string `json:"node_id"`
 	}
@@ -114,14 +136,12 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Registry.UpdateHeartbeat(req.NodeID)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := s.Registry.GetAll()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(nodes)
+	writeJSON(w, nodes)
 }
 
 // --- Task handlers ---
@@ -132,6 +152,7 @@ type submitTaskRequest struct {
 }
 
 func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var req submitTaskRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -142,26 +163,24 @@ func (s *Server) handleSubmitTask(w http.ResponseWriter, r *http.Request) {
 	// Try to schedule immediately
 	scheduled := s.Scheduler.SchedulePending()
 	_ = scheduled
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(task)
+	writeJSON(w, task)
 }
 
 func (s *Server) handleListTasks(w http.ResponseWriter, r *http.Request) {
 	tasks := s.Scheduler.GetTaskStore().GetAll()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tasks)
+	writeJSON(w, tasks)
 }
 
 func (s *Server) handleCompleteTask(w http.ResponseWriter, r *http.Request) {
 	taskID := chi.URLParam(r, "id")
 	s.Scheduler.GetTaskStore().SetStatus(taskID, scheduler.TaskCompleted)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "completed"})
+	writeJSON(w, map[string]string{"status": "completed"})
 }
 
 // --- Lease handlers ---
 
 func (s *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var req struct {
 		TaskID string `json:"task_id"`
 		NodeID string `json:"node_id"`
@@ -176,8 +195,7 @@ func (s *Server) handleCreateLease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(l)
+	writeJSON(w, l)
 }
 
 func (s *Server) handleRevokeLease(w http.ResponseWriter, r *http.Request) {
@@ -186,37 +204,35 @@ func (s *Server) handleRevokeLease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "revoked"})
+	writeJSON(w, map[string]string{"status": "revoked"})
 }
 
 func (s *Server) handleListLeases(w http.ResponseWriter, r *http.Request) {
 	leases := s.LeaseMgr.GetActiveLeases()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(leases)
+	writeJSON(w, leases)
 }
 
 // --- Sync handlers ---
 
 func (s *Server) handleSyncReceive(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var msg sync.SyncMessage
 	if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	applied := s.Receiver.HandleSyncMessage(msg)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]bool{"applied": applied})
+	writeJSON(w, map[string]bool{"applied": applied})
 }
 
 func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int64{"version": s.StateStore.Version()})
+	writeJSON(w, map[string]int64{"version": s.StateStore.Version()})
 }
 
 // --- Recovery handlers ---
 
 func (s *Server) handleRecoveryTrigger(w http.ResponseWriter, r *http.Request) {
+	limitBody(w, r)
 	var req struct {
 		NodeID string `json:"node_id"`
 	}
@@ -225,21 +241,18 @@ func (s *Server) handleRecoveryTrigger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go s.Recovery.NotifyOffline(req.NodeID)
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+	writeJSON(w, map[string]string{"status": "accepted"})
 }
 
 func (s *Server) handleRecoveryLog(w http.ResponseWriter, r *http.Request) {
 	events := s.Log.GetEvents()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(events)
+	writeJSON(w, events)
 }
 
 func (s *Server) handleRecoveryStats(w http.ResponseWriter, r *http.Request) {
 	stats := s.Log.Stats()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(stats)
+	writeJSON(w, stats)
 }
 
 // ListenAndServe starts the server on the given address.

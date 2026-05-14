@@ -14,7 +14,7 @@ type Event struct {
 // Watchdog monitors node heartbeats and emits status change events.
 type Watchdog struct {
 	mu               sync.Mutex
-	intervals        time.Duration
+	interval         time.Duration
 	degradedAfter    time.Duration
 	offlineAfter     time.Duration
 	callback         func(Event)
@@ -42,7 +42,7 @@ type HeartbeatNode struct {
 // offlineAfter: time without heartbeat to mark offline
 func NewWatchdog(reg HeartbeatRegistry, checkInterval, degradedAfter, offlineAfter time.Duration, callback func(Event)) *Watchdog {
 	return &Watchdog{
-		intervals:     checkInterval,
+		interval:      checkInterval,
 		degradedAfter: degradedAfter,
 		offlineAfter:  offlineAfter,
 		callback:      callback,
@@ -62,7 +62,7 @@ func (w *Watchdog) Start() {
 	w.mu.Unlock()
 
 	go func() {
-		ticker := time.NewTicker(w.intervals)
+		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 		for {
 			select {

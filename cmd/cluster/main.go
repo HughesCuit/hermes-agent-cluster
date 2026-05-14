@@ -65,7 +65,7 @@ func main() {
 	detector := recovery.NewDetector(revoker, rescheduler, leaseMgr, recLog)
 
 	// --- Registry adapter for heartbeat watchdog ---
-	adapter := &registryAdapter{reg: registry}
+	adapter := &cluster.RegistryAdapter{Reg: registry}
 
 	// --- Watchdog: heartbeat -> offline -> recovery ---
 	watchdog := heartbeat.NewWatchdog(
@@ -84,6 +84,7 @@ func main() {
 	// --- Lease expiry callback: triggers recovery on lease expiry ---
 	leaseMgr.SetExpiryCallback(func(taskID, nodeID string) {
 		log.Printf("lease expired: task=%s node=%s", taskID, nodeID)
+		detector.NotifyOffline(nodeID)
 	})
 
 	// --- Build API server ---
@@ -155,31 +156,7 @@ func main() {
 	log.Println("server stopped")
 }
 
-// --- Registry Adapter ---
-// Bridges cluster.Registry to heartbeat.HeartbeatRegistry interface.
-
-type registryAdapter struct {
-	reg *cluster.Registry
-}
-
-func (ra *registryAdapter) GetAll() []heartbeat.HeartbeatNode {
-	nodes := ra.reg.GetAll()
-	result := make([]heartbeat.HeartbeatNode, len(nodes))
-	for i, n := range nodes {
-		result[i] = heartbeat.HeartbeatNode{
-			ID:            n.ID,
-			LastHeartbeat: n.LastHeartbeat,
-			Status:        string(n.Status),
-		}
-	}
-	return result
-}
-
-func (ra *registryAdapter) UpdateStatus(id string, status string) {
-	ra.reg.UpdateStatus(id, cluster.NodeStatus(status))
-}
-
-// --- Sync Push Loop ---
+// --- Sync Push Loop
 // Periodically pushes task state to followers (main node only).
 
 func syncPushLoop(ls *sync.LeaderSync, store *scheduler.TaskStore, senderNode string, stopCh <-chan struct{}) {
@@ -204,9 +181,15 @@ func syncPushLoop(ls *sync.LeaderSync, store *scheduler.TaskStore, senderNode st
 					}, sync.EventTaskCreated, senderNode)
 				}
 			}
-			// Update last seen version
-			if len(tasks) > 0 {
-				lastVersion = tasks[len(tasks)-1].Version
+			// Update last seen version with explicit max scan
+			var maxVersion int64
+			for _, t := range tasks {
+				if t.Version > maxVersion {
+					maxVersion = t.Version
+				}
+			}
+			if maxVersion > lastVersion {
+				lastVersion = maxVersion
 			}
 		case <-stopCh:
 			return
