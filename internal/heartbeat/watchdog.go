@@ -1,0 +1,111 @@
+package heartbeat
+
+import (
+	"sync"
+	"time"
+)
+
+// Event types emitted by the watchdog.
+type Event struct {
+	NodeID string
+	Type   string // "online", "degraded", "offline"
+}
+
+// Watchdog monitors node heartbeats and emits status change events.
+type Watchdog struct {
+	mu               sync.Mutex
+	intervals        time.Duration
+	degradedAfter    time.Duration
+	offlineAfter     time.Duration
+	callback         func(Event)
+	running          bool
+	stopCh           chan struct{}
+	registry         HeartbeatRegistry
+}
+
+// HeartbeatRegistry is the interface the watchdog needs from the cluster registry.
+type HeartbeatRegistry interface {
+	GetAll() []HeartbeatNode
+	UpdateStatus(id string, status string)
+}
+
+// HeartbeatNode is a minimal node interface for the watchdog.
+type HeartbeatNode struct {
+	ID            string
+	LastHeartbeat time.Time
+	Status        string
+}
+
+// NewWatchdog creates a watchdog that checks heartbeat status.
+// checkInterval: how often to check
+// degradedAfter: time without heartbeat to mark degraded
+// offlineAfter: time without heartbeat to mark offline
+func NewWatchdog(reg HeartbeatRegistry, checkInterval, degradedAfter, offlineAfter time.Duration, callback func(Event)) *Watchdog {
+	return &Watchdog{
+		intervals:     checkInterval,
+		degradedAfter: degradedAfter,
+		offlineAfter:  offlineAfter,
+		callback:      callback,
+		registry:      reg,
+	}
+}
+
+// Start begins the watchdog loop.
+func (w *Watchdog) Start() {
+	w.mu.Lock()
+	if w.running {
+		w.mu.Unlock()
+		return
+	}
+	w.running = true
+	w.stopCh = make(chan struct{})
+	w.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(w.intervals)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				w.check()
+			case <-w.stopCh:
+				return
+			}
+		}
+	}()
+}
+
+// Stop halts the watchdog.
+func (w *Watchdog) Stop() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.running {
+		return
+	}
+	w.running = false
+	close(w.stopCh)
+}
+
+func (w *Watchdog) check() {
+	now := time.Now()
+	nodes := w.registry.GetAll()
+	for _, n := range nodes {
+		elapsed := now.Sub(n.LastHeartbeat)
+		var newStatus string
+		switch {
+		case elapsed >= w.offlineAfter:
+			newStatus = "offline"
+		case elapsed >= w.degradedAfter:
+			newStatus = "degraded"
+		default:
+			newStatus = "online"
+		}
+
+		if newStatus != n.Status {
+			w.registry.UpdateStatus(n.ID, newStatus)
+			if w.callback != nil {
+				w.callback(Event{NodeID: n.ID, Type: newStatus})
+			}
+		}
+	}
+}
