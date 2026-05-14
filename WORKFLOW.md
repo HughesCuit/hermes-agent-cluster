@@ -111,3 +111,20 @@ review 是 blocked 状态 → fix task 永远停在 todo → pipeline 卡死。
 ### 禁止
 - ❌ fix task 的 parent 设为 review task
 - ❌ 在 blocked 的 review task 上评论期望触发下游
+
+## ⚠️ Worker 不能自己 blocked（2026-05-14 踩坑）
+
+### 问题
+Fix worker 完成修复后执行 `blocked("review-required")`，等 CTO re-review。
+但 blocked = 停止不动，没人手动 unblock 就永远卡死。
+
+### 正确做法
+- Worker 完成工作 → 直接 `done`
+- 不要用 blocked 表示"等待上游"
+- 依赖关系由 parent→child 链管理
+- 需要人工介入时用 comment 通知，不要 block
+
+### 规则
+- `blocked` = 有外部依赖未解决（如等决策、等资源）
+- `done` = 本任务工作完成
+- Worker 只管自己的任务，不管上下游流转
